@@ -1,0 +1,5 @@
+# Adobe Illustrator Script ignores
+.DS_Store
+*.tmp
+*.log
+.vscode/
