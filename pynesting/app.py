@@ -1,63 +1,55 @@
-import svgelements as se
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.ops import unary_union
-import os
+import os, tempfile, sys
 
-def svg_to_shapely(svg_path):
-    """Konverterar SVG-stigar till Shapely-polygoner för geometriberäkning."""
-    if not os.path.exists(svg_path):
-        print(f"Fel: Hittade inte filen {svg_path}")
-        return []
-
-    svg = se.SVG.parse(svg_path)
-    polygons = []
-
-    for element in svg.elements():
-        if isinstance(element, (se.Path, se.Rect, se.Circle, se.Ellipse, se.Polygon)):
-            # Skapa punkter längs stigen (approximation av kurvor)
-            points = []
-            # Vi samplar stigen för att skapa en polygon
-            try:
-                # Steglängd för sampling av kurvor (lägre = mer exakt men långsammare)
-                for i in range(101):
-                    p = element.point(i / 100.0)
-                    points.append((p.x, p.y))
-                
-                if len(points) >= 3:
-                    poly = Polygon(points)
-                    if poly.is_valid:
-                        polygons.append(poly)
-            except Exception as e:
-                print(f"Kunde inte konvertera element: {e}")
-
-    return polygons
-
-def calculate_stats(polygons):
-    """Beräknar och skriver ut statistik om de inlästa formerna."""
-    if not polygons:
-        print("Inga giltiga former hittades.")
-        return
-
-    total_area = sum(p.area for p in polygons)
-    
-    # Beräkna sammanlagd bounding box
-    combined = unary_union(polygons)
-    bounds = combined.bounds # (minx, miny, maxx, maxy)
-    bbox_area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
-    
-    efficiency = (total_area / bbox_area) * 100 if bbox_area > 0 else 0
-
-    print(f"Antal objekt: {len(polygons)}")
-    print(f"Total form-yta: {total_area:.2f} px²")
-    print(f"Bounding box yta: {bbox_area:.2f} px²")
-    print(f"Packningsgrad (nuvarande): {efficiency:.1f}%")
+def get_temp_path(name):
+    return os.path.join(tempfile.gettempdir(), "ai_nesting", name)
 
 if __name__ == "__main__":
-    # För testning: Använd en enkel SVG om den finns
-    sample_svg = "sample_rect.svg"
-    if os.path.exists(sample_svg):
-        print(f"Läser in {sample_svg}...")
-        shapes = svg_to_shapely(sample_svg)
-        calculate_stats(shapes)
-    else:
-        print("Skapa en SVG-fil för att testa scriptet.")
+    try:
+        items_path = get_temp_path("items.txt")
+        results_path = get_temp_path("results.txt")
+        
+        if not os.path.exists(items_path): sys.exit(1)
+
+        with open(items_path, "r") as f:
+            lines = f.readlines()
+
+        # Första raden: width, height, spacing
+        config = lines[0].strip().split(",")
+        w, h, spacing = float(config[0]), float(config[1]), float(config[2])
+
+        # Resten: id, width, height
+        items = []
+        for line in lines[1:]:
+            parts = line.strip().split(",")
+            if len(parts) == 3:
+                items.append({'id': parts[0], 'w': float(parts[1]), 'h': float(parts[2])})
+
+        # --- Enkel Shelf Packing ---
+        items.sort(key=lambda x: x['h'], reverse=True)
+        
+        results = []
+        cur_x, cur_y = 0, 0
+        shelf_h = 0
+        
+        for item in items:
+            if cur_x + item['w'] > w:
+                cur_x = 0
+                cur_y += shelf_h + spacing
+                shelf_h = 0
+            
+            # Kolla om den får plats i höjd på ritytan
+            if cur_y + item['h'] > h:
+                continue 
+
+            results.append(f"{item['id']},{cur_x},{cur_y}")
+            
+            cur_x += item['w'] + spacing
+            shelf_h = max(shelf_h, item['h'])
+
+        # Skriv resultat till textfil
+        with open(results_path, "w") as f:
+            f.write("\n".join(results))
+
+    except Exception as e:
+        with open(get_temp_path("error.txt"), "w") as f:
+            f.write(str(e))
