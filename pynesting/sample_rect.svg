@@ -1,0 +1,6 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- En enkel rektangel för test -->
+  <rect x="10" y="10" width="50" height="100" fill="red" />
+  <!-- En oregelbunden triangel -->
+  <polygon points="100,10 150,10 125,60" fill="blue" />
+</svg>
