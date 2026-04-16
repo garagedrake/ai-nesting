@@ -1,31 +1,37 @@
-# Adobe Illustrator Nesting Script
+# AI True Nesting for Adobe Illustrator
 
-An Adobe Illustrator script (ExtendScript) for box-nesting selected objects within the active artboard.
+Professional nesting solution that uses irregular shapes (True Nesting) to maximize material usage.
 
 ## Features
-- **Artboard-aware**: Automatically detects the size of the active artboard.
-- **Unit Support**: Supports Millimeters, Centimeters, Inches, Points, and Pixels.
-- **Adjustable Spacing**: Set the gap between nested objects.
-- **90° Rotation**: Optional rotation to optimize space usage.
-- **Weeding Frames**: Optional boundary frames for easier cutting/weeding.
-- **Shelf-Packing Algorithm**: Simple but effective packing for rectangular bounds.
+- **True Nesting (High Precision):** Uses the actual geometry of objects instead of bounding boxes.
+- **High-Performance Engine:** Powered by Python with `Shapely` and `STRtree` for lightning-fast collision detection.
+- **Rotation Support:** Automatically tests 0, 90, 180, and 270 degree rotations for optimal fit.
+- **Smart Fallback:** If an irregular shape can't be nested, it falls back to efficient box-packing to ensure all items are placed.
+- **Artboard Aware:** Automatically detects artboard dimensions and keeps all items within bounds.
+
+## Requirements
+- **Adobe Illustrator**
+- **Python 3.x**
+- **Python Libraries:**
+  ```bash
+  pip install shapely svgelements
+  ```
 
 ## Installation
-1. Download `IllustratorNesting.jsx`.
-2. Move it to your Illustrator scripts folder:
-   - **Windows**: `C:\Program Files\Adobe\Adobe Illustrator [Version]\Presets\[Language]\Scripts`
-   - **macOS**: `/Applications/Adobe Illustrator [Version]/Presets/[Language]/Scripts`
-3. Restart Illustrator.
+1. Clone the repository or download the files.
+2. Install the required Python libraries (see above).
+3. In Illustrator, go to `File > Scripts > Other Script...` and select `IllustratorTrueNesting.jsx`.
 
-## Usage
-1. Open an Illustrator document.
-2. Select the objects you want to nest.
-3. Go to `File > Scripts > IllustratorNesting`.
-4. Configure your settings and click **Starta Nesting**.
+## How to Use
+1. Select the objects you want to nest in Illustrator.
+2. Run the script.
+3. Set the **Mellanrum (Spacing)** in pixels.
+4. Check **Hög precision (True Nesting)** for irregular shapes.
+5. Click **Starta Nesting**.
 
-## License
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. This means:
-- You are free to use, modify, and distribute the code.
-- If you distribute a modified version, it **must** also be open-source under the same license.
-- It prevents the code from being used in closed-source proprietary software.
-- See the [LICENSE](LICENSE) file for more details.
+## Troubleshooting
+- If the nesting doesn't start, check `%TEMP%\ai_nesting\log.txt` for detailed engine logs.
+- Ensure all selected objects are on unlocked layers.
+
+## Version
+Current Version: 0.1 (BETA)

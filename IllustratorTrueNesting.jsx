@@ -1,19 +1,15 @@
 /*
-    Illustrator True Nesting - Professional Edition
-    Refactored based on Adobe Scripting Best Practices
-    Version: 3.0
+    Illustrator True Nesting
+    Version: 0.1 (BETA)
+    Professional Nesting Engine for Adobe Illustrator
 */
 
 #target illustrator
 
 (function() {
-    // --- Global Constants & State ---
-    var SCRIPT_NAME = "AI True Nesting Pro";
+    var SCRIPT_NAME = "AI True Nesting";
     var TEMP_FOLDER_NAME = "ai_nesting";
     
-    /**
-     * Entry Point
-     */
     function main() {
         if (app.documents.length === 0) {
             alert("Vänligen öppna ett dokument först.", SCRIPT_NAME);
@@ -28,11 +24,9 @@
             return;
         }
 
-        // --- Step 1: UI Implementation (ScriptUI Best Practices) ---
         var settings = showUI();
-        if (!settings) return; // User cancelled
+        if (!settings) return;
 
-        // --- Step 2: Environment Setup ---
         var originalInteractionLevel = app.userInteractionLevel;
         app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
 
@@ -41,21 +35,16 @@
         } catch (e) {
             alert("Ett oväntat fel uppstod:\n" + e.message + "\n(Rad: " + e.line + ")", SCRIPT_NAME);
         } finally {
-            // Restore environment
             app.userInteractionLevel = originalInteractionLevel;
         }
     }
 
-    /**
-     * Show Professional ScriptUI Dialog
-     */
     function showUI() {
         var dialog = new Window("dialog", SCRIPT_NAME);
         dialog.orientation = "column";
         dialog.alignChildren = ["fill", "top"];
         dialog.spacing = 15;
 
-        // Settings Panel
         var pnl = dialog.add("panel", undefined, "Inställningar");
         pnl.orientation = "column";
         pnl.alignChildren = "left";
@@ -68,9 +57,8 @@
 
         var chkHighPrecision = pnl.add("checkbox", undefined, "Hög precision (True Nesting)");
         chkHighPrecision.helpTip = "Använder oregelbundna former istället för boxar. Tar längre tid.";
-        chkHighPrecision.value = false;
+        chkHighPrecision.value = true;
 
-        // Buttons
         var grpButtons = dialog.add("group");
         grpButtons.alignment = "right";
         var btnCancel = grpButtons.add("button", undefined, "Avbryt", {name: "cancel"});
@@ -85,17 +73,13 @@
         return null;
     }
 
-    /**
-     * Main Processing Logic
-     */
     function processNesting(doc, selection, settings) {
         var tempFolder = new Folder(Folder.temp + "/" + TEMP_FOLDER_NAME);
         if (!tempFolder.exists) tempFolder.create();
 
         var artboard = doc.artboards[doc.artboards.getActiveArtboardIndex()];
-        var abRect = artboard.artboardRect; // [left, top, right, bottom]
+        var abRect = artboard.artboardRect; 
         
-        // Adobe Best Practice: Document Coordinate System Awareness
         var abWidth = Math.abs(abRect[2] - abRect[0]);
         var abHeight = Math.abs(abRect[1] - abRect[3]);
         var abLeft = abRect[0];
@@ -107,42 +91,34 @@
 
         if (resultsFile.exists) resultsFile.remove();
 
-        // --- Data Export ---
         itemsFile.open("w");
-        // Row 1: Artboard Config
         itemsFile.writeln(abWidth + "," + abHeight + "," + settings.spacing + "," + (settings.highPrecision ? "1" : "0"));
         
         for (var i = 0; i < selection.length; i++) {
             var item = selection[i];
             var uid = "item" + i;
-            item.note = uid; // Safe storage for ID
+            item.note = uid;
             
-            var vB = item.visibleBounds; // Adobe Documentation: Safe measurement including strokes
+            var vB = item.visibleBounds;
             var w = Math.abs(vB[2] - vB[0]);
             var h = Math.abs(vB[1] - vB[3]);
             itemsFile.writeln(uid + "," + w + "," + h);
         }
         itemsFile.close();
 
-        // Optional SVG Export for True Nesting
         if (settings.highPrecision) {
             exportSelectionToSVG(doc, selection, svgFile);
         }
 
-        // --- External Engine Call ---
         executePythonEngine(tempFolder);
 
-        // --- Wait for Results ---
-        if (waitForFile(resultsFile, settings.highPrecision ? 120 : 40)) {
+        if (waitForFile(resultsFile, settings.highPrecision ? 300 : 40)) {
             applyNestingResults(selection, resultsFile, abLeft, abTop);
         } else {
-            throw new Error("Nesting-motorn svarade inte i tid.");
+            throw new Error("Nesting-motorn svarade inte i tid. Kontrollera log.txt i temp-mappen.");
         }
     }
 
-    /**
-     * Export SVG for True Nesting (Irregular Shapes)
-     */
     function exportSelectionToSVG(doc, selection, file) {
         var exportOptions = new ExportOptionsSVG();
         exportOptions.fontType = SVGFontType.OUTLINEFONT;
@@ -157,9 +133,6 @@
         tempDoc.close(SaveOptions.DONOTSAVECHANGES);
     }
 
-    /**
-     * Execute Python via Batch
-     */
     function executePythonEngine(folder) {
         var scriptFile = new File($.fileName);
         var pythonScriptPath = scriptFile.parent.fsName + "\\pynesting\\app.py";
@@ -172,30 +145,40 @@
         batFile.execute();
     }
 
-    /**
-     * Apply coordinates back to objects
-     */
     function applyNestingResults(selection, file, abLeft, abTop) {
         file.open("r");
         var movedCount = 0;
+        var errorCount = 0;
+        
         while (!file.eof) {
             var line = file.readln();
-            if (line === "") continue;
+            if (line === "" || line === "null") continue;
             var parts = line.split(",");
+            if (parts.length < 3) continue;
+            
             var id = parts[0];
             var x = parseFloat(parts[1]);
             var y = parseFloat(parts[2]);
+            var angle = parts.length > 3 ? parseFloat(parts[3]) : 0;
             
             var item = findItemInSelection(selection, id);
             if (item) {
-                // Adobe Best Practice: Position [left, top]
-                // res.y is distance DOWN from artboard top
-                item.position = [abLeft + x, abTop - y];
-                movedCount++;
+                try {
+                    if (Math.abs(angle) > 0.1) {
+                        item.rotate(angle, true, true, true, true, Transformation.CENTER);
+                    }
+                    item.position = [abLeft + x, abTop - y];
+                    movedCount++;
+                } catch (err) {
+                    errorCount++;
+                }
             }
         }
         file.close();
-        alert("Nesting slutförd!\nFlyttade " + movedCount + " objekt.", SCRIPT_NAME);
+        
+        var msg = "Nesting slutförd!\nFlyttade " + movedCount + " objekt.";
+        if (errorCount > 0) msg += "\n(" + errorCount + " objekt misslyckades).";
+        alert(msg, SCRIPT_NAME);
     }
 
     function findItemInSelection(sel, id) {
@@ -213,7 +196,6 @@
         return false;
     }
 
-    // Run Script
     main();
 
 })();
