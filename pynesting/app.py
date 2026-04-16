@@ -1,4 +1,4 @@
-import os, tempfile, sys, json, traceback, re
+import os, tempfile, sys, json, traceback, re, math
 import svgelements as se
 from shapely.geometry import Polygon, MultiPolygon, box
 from shapely.affinity import rotate, translate
@@ -6,7 +6,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 import xml.etree.ElementTree as ET
 
-# Version: 0.1 (BETA)
+# Version: 0.1 (BETA) - English Refactor with Gravity Strategies
 
 def get_temp_path(name):
     return os.path.join(tempfile.gettempdir(), "ai_nesting", name)
@@ -28,7 +28,7 @@ def svg_to_shapes(svg_path):
             if '}' in el.tag: el.tag = el.tag.split('}', 1)[1]
         
         item_geoms = {}
-        log("Searching for item groups/elements...")
+        log("Searching for item groups/elements in SVG...")
         for element in root.iter():
             eid = element.get('id') or element.get('{http://www.w3.org/2000/svg}id') or element.get('data-name')
             if eid:
@@ -98,20 +98,35 @@ def svg_to_shapes(svg_path):
         return {}
 
 def run_nesting():
-    with open(get_temp_path("log.txt"), "w") as f: f.write("--- NESTING LOG START ---\n")
-    log("--- STARTING NESTING ENGINE v0.1 (High-Performance) ---")
+    # Clear log
+    with open(get_temp_path("log.txt"), "w") as f: 
+        f.write("--- NESTING LOG START ---\n")
+    
+    log("--- STARTING NESTING ENGINE v0.1 (Heuristic Search) ---")
     items_path = get_temp_path("items.txt")
     results_path = get_temp_path("results.txt")
     svg_path = get_temp_path("export.svg")
 
     try:
-        if not os.path.exists(items_path): return
+        if not os.path.exists(items_path): 
+            log("Error: items.txt missing")
+            return
+            
         with open(items_path, "r") as f: lines = f.readlines()
+        
         config = lines[0].strip().split(",")
         container_w, container_h = float(config[0]), float(config[1])
         spacing = float(config[2])
         is_hp = config[3] == "1"
         
+        # Strategy: 0=Minimize Roll Length (Y-priority), 1=Minimize Roll Width (X-priority)
+        try:
+            strategy = int(config[4])
+        except (IndexError, ValueError):
+            strategy = 0 
+            
+        log(f"Config: W={container_w}, H={container_h}, Spacing={spacing}, HP={is_hp}, Strategy={strategy}")
+
         container_poly = box(0, 0, container_w, container_h)
         
         items = []
@@ -121,6 +136,8 @@ def run_nesting():
                 items.append({'id': parts[0], 'w': float(parts[1]), 'h': float(parts[2])})
 
         geoms = svg_to_shapes(svg_path) if is_hp else {}
+        
+        # Pre-process geometries: Normalize AND PRE-BUFFER
         buf = spacing / 2.0
         processed_geoms = {}
         for uid, poly in geoms.items():
@@ -128,11 +145,12 @@ def run_nesting():
             poly = translate(poly, -b[0], -b[1])
             processed_geoms[uid] = poly.buffer(buf)
 
+        # Sort by area
         items.sort(key=lambda x: x['h'] * x['w'], reverse=True)
 
         placed_results = []
         placed_geoms_list = []
-        total_bounds = [0, 0, 0, 0] 
+        total_bounds = [0, 0, 0, 0] # [minx, miny, maxx, maxy]
 
         for item in items:
             uid = item['id']
@@ -148,58 +166,98 @@ def run_nesting():
                     test_shape = translate(rotated, -rb[0], -rb[1])
                     tw, th = rb[2]-rb[0], rb[3]-rb[1]
                     
-                    search_maxx = min(container_w - tw, total_bounds[2] + tw + spacing)
-                    search_maxy = min(container_h - th, total_bounds[3] + th + spacing)
+                    # Search range - Always evaluate full sheet
+                    search_maxx = container_w - tw
+                    search_maxy = container_h - th
                     
                     step = max(3, int(spacing / 2))
+                    
+                    # Generate candidates
+                    candidates = []
+                    try:
+                        for y in range(0, int(search_maxy) + step, step):
+                            for x in range(0, int(search_maxx) + step, step):
+                                # Score based on strategy
+                                if strategy == 0: # Minimize Roll Length (Y-priority)
+                                    score = (y * 10) + x
+                                else: # Minimize Roll Width (X-priority)
+                                    score = (x * 10) + y
+                                
+                                candidates.append((x, y, score))
+                    except Exception as e:
+                        log(f"Error generating candidates for {uid}: {e}")
+                        continue
+                    
+                    # Sort candidates by score
+                    candidates.sort(key=lambda c: c[2])
+                    
                     tree = STRtree(placed_geoms_list) if placed_geoms_list else None
                     
-                    for y in range(0, int(search_maxy) + step, step):
-                        if found: break
-                        for x in range(0, int(search_maxx) + step, step):
-                            candidate = translate(test_shape, x, y)
-                            if not container_poly.contains(candidate): continue
-                            
-                            if tree:
-                                if tree.query(candidate, predicate="intersects").size == 0:
-                                    found = True
-                            else:
-                                found = True
-                                
-                            if found:
-                                placed_results.append(f"{uid},{x},{y},{angle}")
-                                placed_geoms_list.append(candidate)
-                                cb = candidate.bounds
-                                total_bounds[2] = max(total_bounds[2], cb[2])
-                                total_bounds[3] = max(total_bounds[3], cb[3])
-                                log(f" - Placed {uid} at {x},{y} (Angle: {angle})")
-                                break
-            
-            if not found:
-                log(f" - Fallback for {uid}")
-                item_box = box(0, 0, item['w'], item['h']).buffer(buf)
-                start_y = total_bounds[3] + spacing if total_bounds[3] > 0 else 0
-                
-                for y in range(int(start_y), int(container_h - item['h']), 10):
-                    if found: break
-                    for x in range(0, int(container_w - item['w']), 10):
-                        candidate = translate(item_box, x, y)
+                    for cx, cy, score_val in candidates:
+                        candidate = translate(test_shape, cx, cy)
+                        
+                        # Within container?
                         if not container_poly.contains(candidate): continue
-                        tree = STRtree(placed_geoms_list) if placed_geoms_list else None
-                        if not tree or tree.query(candidate, predicate="intersects").size == 0:
-                            placed_results.append(f"{uid},{x},{y},0")
+                        
+                        # Collision check
+                        if tree:
+                            if tree.query(candidate, predicate="intersects").size == 0:
+                                found = True
+                        else:
+                            found = True
+                            
+                        if found:
+                            # IMPORTANT: Adjust for buffer offset and invert rotation for Illustrator
+                            placed_results.append(f"{uid},{cx + buf},{cy + buf},{-angle}")
                             placed_geoms_list.append(candidate)
                             cb = candidate.bounds
                             total_bounds[2] = max(total_bounds[2], cb[2])
                             total_bounds[3] = max(total_bounds[3], cb[3])
-                            found = True
+                            log(f" - Placed {uid} at {cx},{cy} (Angle: {angle}, Score: {score_val:.1f})")
                             break
+            
+            if not found:
+                log(f" - Fallback for {uid}")
+                item_box = box(0, 0, item['w'], item['h']).buffer(buf)
+                rb = item_box.bounds
+                test_box = translate(item_box, -rb[0], -rb[1])
+                tw, th = rb[2]-rb[0], rb[3]-rb[1]
                 
-                if not found: log(f"CRITICAL: Could not place {uid}.")
+                # Heuristic fallback coordinates - Search full area
+                fb_candidates = []
+                try:
+                    for y in range(0, int(container_h - th), 10):
+                        for x in range(0, int(container_w - tw), 10):
+                            if strategy == 0: score = (y * 10) + x
+                            else: score = (x * 10) + y
+                            fb_candidates.append((x, y, score))
+                except Exception as e:
+                    log(f"Error generating fallback candidates for {uid}: {e}")
+                
+                fb_candidates.sort(key=lambda c: c[2])
+                
+                tree = STRtree(placed_geoms_list) if placed_geoms_list else None
+                for fx, fy, _ in fb_candidates:
+                    candidate = translate(test_box, fx, fy)
+                    if not container_poly.contains(candidate): continue
+                    if not tree or tree.query(candidate, predicate="intersects").size == 0:
+                        # IMPORTANT: Adjust for buffer offset
+                        placed_results.append(f"{uid},{fx + buf},{fy + fy + buf if False else fy + buf},0") # Tiny safety fix in logic
+                        placed_geoms_list.append(candidate)
+                        cb = candidate.bounds
+                        total_bounds[2] = max(total_bounds[2], cb[2])
+                        total_bounds[3] = max(total_bounds[3], cb[3])
+                        found = True
+                        break
+                
+                if not found: log(f"CRITICAL: Could not place {uid} even with fallback.")
 
-        with open(results_path, "w") as f: f.write("\n".join(placed_results))
-        log("Done.")
+        with open(results_path, "w") as f: 
+            f.write("\n".join(placed_results))
+        log("Nesting completed successfully.")
+        
     except Exception as e:
         log(f"CRASH: {e}\n{traceback.format_exc()}")
 
-if __name__ == "__main__": run_nesting()
+if __name__ == "__main__": 
+    run_nesting()

@@ -1,5 +1,27 @@
-# Adobe Illustrator Script ignores
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Nesting engine build artifacts
+*.exe
+dist/
+build/
+*.spec
+*.pkg
+*.toc
+*.pyz
+
+# Illustrator Temp Data
+ai_nesting/
+items.txt
+results.txt
+export.svg
+log.txt
+run_nesting.bat
+
+# OS
 .DS_Store
-*.tmp
-*.log
-.vscode/
+Thumbs.db

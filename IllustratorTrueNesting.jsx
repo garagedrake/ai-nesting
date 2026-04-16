@@ -1,18 +1,26 @@
 /*
-    Illustrator True Nesting
-    Version: 0.1 (BETA)
+    AI True Nesting
+    Version: 0.1 BETA
     Professional Nesting Engine for Adobe Illustrator
 */
 
 #target illustrator
 
 (function() {
-    var SCRIPT_NAME = "AI True Nesting";
+    var SCRIPT_NAME = "AI True Nesting 0.1 BETA";
     var TEMP_FOLDER_NAME = "ai_nesting";
     
     function main() {
         if (app.documents.length === 0) {
-            alert("Vänligen öppna ett dokument först.", SCRIPT_NAME);
+            alert("Please open a document first.", SCRIPT_NAME);
+            return;
+        }
+
+        // --- OS Compatibility Check (Windows Only for BETA) ---
+        if ($.os.toLowerCase().indexOf('mac') !== -1) {
+            alert("Compatibility Error:\n" + 
+                  "Version 0.1 BETA currently supports Windows only.\n" + 
+                  "A macOS solution is under development.", SCRIPT_NAME);
             return;
         }
 
@@ -20,7 +28,7 @@
         var selection = doc.selection;
 
         if (selection.length === 0) {
-            alert("Vänligen markera objekten du vill nesta.", SCRIPT_NAME);
+            alert("Please select the objects you want to nest.", SCRIPT_NAME);
             return;
         }
 
@@ -33,7 +41,7 @@
         try {
             processNesting(doc, selection, settings);
         } catch (e) {
-            alert("Ett oväntat fel uppstod:\n" + e.message + "\n(Rad: " + e.line + ")", SCRIPT_NAME);
+            alert("An unexpected error occurred:\n" + e.message + "\n(Line: " + e.line + ")", SCRIPT_NAME);
         } finally {
             app.userInteractionLevel = originalInteractionLevel;
         }
@@ -45,28 +53,34 @@
         dialog.alignChildren = ["fill", "top"];
         dialog.spacing = 15;
 
-        var pnl = dialog.add("panel", undefined, "Inställningar");
+        var pnl = dialog.add("panel", undefined, "Settings");
         pnl.orientation = "column";
         pnl.alignChildren = "left";
         pnl.margins = 15;
 
         var grpSpacing = pnl.add("group");
-        grpSpacing.add("statictext", undefined, "Mellanrum mellan objekt (px):");
+        grpSpacing.add("statictext", undefined, "Spacing between objects (px):");
         var txtSpacing = grpSpacing.add("edittext", undefined, "10");
         txtSpacing.characters = 5;
 
-        var chkHighPrecision = pnl.add("checkbox", undefined, "Hög precision (True Nesting)");
-        chkHighPrecision.helpTip = "Använder oregelbundna former istället för boxar. Tar längre tid.";
+        var grpStrategy = pnl.add("group");
+        grpStrategy.add("statictext", undefined, "Filling Strategy:");
+        var drpStrategy = grpStrategy.add("dropdownlist", undefined, ["Minimize Roll Length (Y-priority)", "Minimize Roll Width (X-priority)"]);
+        drpStrategy.selection = 0;
+
+        var chkHighPrecision = pnl.add("checkbox", undefined, "High Precision (True Nesting)");
+        chkHighPrecision.helpTip = "Uses irregular shapes instead of boxes. Takes longer.";
         chkHighPrecision.value = true;
 
         var grpButtons = dialog.add("group");
         grpButtons.alignment = "right";
-        var btnCancel = grpButtons.add("button", undefined, "Avbryt", {name: "cancel"});
-        var btnOk = grpButtons.add("button", undefined, "Starta Nesting", {name: "ok"});
+        var btnCancel = grpButtons.add("button", undefined, "Cancel", {name: "cancel"});
+        var btnOk = grpButtons.add("button", undefined, "Start Nesting", {name: "ok"});
 
         if (dialog.show() === 1) {
             return {
                 spacing: parseFloat(txtSpacing.text) || 0,
+                strategy: drpStrategy.selection.index,
                 highPrecision: chkHighPrecision.value
             };
         }
@@ -92,7 +106,7 @@
         if (resultsFile.exists) resultsFile.remove();
 
         itemsFile.open("w");
-        itemsFile.writeln(abWidth + "," + abHeight + "," + settings.spacing + "," + (settings.highPrecision ? "1" : "0"));
+        itemsFile.writeln(abWidth + "," + abHeight + "," + settings.spacing + "," + (settings.highPrecision ? "1" : "0") + "," + settings.strategy);
         
         for (var i = 0; i < selection.length; i++) {
             var item = selection[i];
@@ -115,7 +129,7 @@
         if (waitForFile(resultsFile, settings.highPrecision ? 300 : 40)) {
             applyNestingResults(selection, resultsFile, abLeft, abTop);
         } else {
-            throw new Error("Nesting-motorn svarade inte i tid. Kontrollera log.txt i temp-mappen.");
+            throw new Error("Nesting engine did not respond in time. Check log.txt in temp folder.");
         }
     }
 
@@ -135,12 +149,13 @@
 
     function executePythonEngine(folder) {
         var scriptFile = new File($.fileName);
-        var pythonScriptPath = scriptFile.parent.fsName + "\\pynesting\\app.py";
+        var engineExePath = scriptFile.parent.fsName + "\\pynesting\\app.exe";
         var batFile = new File(folder + "/run_nesting.bat");
         
         batFile.open("w");
         batFile.writeln("@echo off");
-        batFile.writeln("python \"" + pythonScriptPath + "\"");
+        // Quoted path to handle spaces in file system
+        batFile.writeln("\"" + engineExePath + "\"");
         batFile.close();
         batFile.execute();
     }
@@ -176,8 +191,8 @@
         }
         file.close();
         
-        var msg = "Nesting slutförd!\nFlyttade " + movedCount + " objekt.";
-        if (errorCount > 0) msg += "\n(" + errorCount + " objekt misslyckades).";
+        var msg = "Nesting completed!\nMoved " + movedCount + " objects.";
+        if (errorCount > 0) msg += "\n(" + errorCount + " objects failed).";
         alert(msg, SCRIPT_NAME);
     }
 
